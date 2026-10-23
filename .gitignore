@@ -1,0 +1,30 @@
+# virtual envs
+venv/
+.venv/
+env/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# raw video (never commit; demo export lives elsewhere)
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# model and big datasets: do not commit if >50MB
+models/*.joblib
+!data/raw/.gitkeep
+!models/.gitkeep
+
+# web build
+web/node_modules/
+web/dist/
+web/.vercel/
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/

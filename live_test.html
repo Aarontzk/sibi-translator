@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIBI Live Test</title>
+<style>
+  :root {
+    --bg: #0f1113; --panel: #171a1d; --line: #2a2f34; --text: #e8eaec;
+    --muted: #8b939b; --accent: #4cc38a; --warn: #f2b84b; --bad: #ef6461;
+    --info: #5aa9e6; --radius: 10px;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 system-ui, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 12px 20px;
+           border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  .tabs { display: flex; gap: 4px; background: var(--panel); padding: 3px;
+          border-radius: 8px; border: 1px solid var(--line); }
+  .tabs button { background: none; border: 0; color: var(--muted); padding: 5px 14px;
+                 border-radius: 6px; cursor: pointer; font: inherit; }
+  .tabs button[aria-selected="true"] { background: var(--line); color: var(--text); }
+  .status { margin-left: auto; display: flex; gap: 14px; font-family: var(--mono);
+            font-size: 13px; color: var(--muted); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+         background: var(--muted); margin-right: 6px; vertical-align: 1px; }
+  .dot.on { background: var(--accent); }
+  .error { background: #3a1e1e; color: #ffb4b0; padding: 10px 20px;
+           border-bottom: 1px solid #5c2b2b; display: none; }
+
+  main { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr);
+         gap: 20px; padding: 20px; max-width: 1400px; margin: 0 auto; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 16px; } }
+
+  .card { background: var(--panel); border: 1px solid var(--line);
+          border-radius: var(--radius); padding: 16px; }
+  .video { position: relative; padding: 0; overflow: hidden; }
+  .video img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover;
+               background: #000; }
+  .live { display: flex; align-items: center; gap: 16px; padding: 12px 16px; }
+  .live .big { font-size: 44px; font-weight: 700; width: 56px; text-align: center;
+               font-family: var(--mono); }
+  .meters { flex: 1; display: grid; gap: 8px; }
+  .meter { display: grid; grid-template-columns: 44px 1fr 48px; align-items: center;
+           gap: 10px; font-size: 12px; color: var(--muted); }
+  .bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--info);
+             transition: width .08s linear; }
+  .bar.hold > i { background: var(--accent); }
+  .num { font-family: var(--mono); text-align: right; }
+
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+       color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+  input, select { display: block; width: 100%; margin-top: 4px; padding: 8px 10px;
+                  background: var(--bg); color: var(--text); border: 1px solid var(--line);
+                  border-radius: 6px; font: inherit; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .note { font-size: 13px; color: var(--muted); margin: 4px 0 16px; }
+  button.primary, button.ghost { font: inherit; padding: 9px 16px; border-radius: 7px;
+                                 cursor: pointer; border: 1px solid var(--line); }
+  button.primary { background: var(--accent); color: #07140d; border-color: var(--accent);
+                   font-weight: 600; }
+  button.ghost { background: none; color: var(--text); }
+  button:disabled { opacity: .5; cursor: default; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+
+  .target { text-align: center; padding: 8px 0 4px; }
+  .target .label { font-size: 13px; color: var(--muted); }
+  .target .letter { font-size: 128px; line-height: 1; font-weight: 700;
+                    font-family: var(--mono); margin: 8px 0; transition: color .15s; }
+  .target .letter.ok { color: var(--accent); }
+  .target .letter.no { color: var(--bad); }
+  .feedback { min-height: 22px; text-align: center; font-size: 14px; }
+  .progress { display: flex; justify-content: space-between; font-family: var(--mono);
+              font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
+  .bar.timer > i { background: var(--warn); transition: none; }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+  .stat { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  .stat b { display: block; font-size: 22px; font-family: var(--mono); }
+  .stat span { font-size: 12px; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+  .cell { border-radius: 6px; padding: 6px 0; text-align: center; font-family: var(--mono);
+          background: var(--bg); border: 1px solid var(--line); }
+  .cell b { display: block; font-size: 16px; }
+  .cell span { font-size: 11px; color: var(--muted); }
+  .confusions { margin: 16px 0 0; padding: 0; list-style: none; font-family: var(--mono);
+                font-size: 13px; }
+  .confusions li { padding: 4px 0; border-bottom: 1px solid var(--line); }
+  .saved { font-size: 13px; margin-top: 12px; color: var(--muted); word-break: break-all; }
+
+  .freetext { min-height: 120px; font-family: var(--mono); font-size: 32px;
+              background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+              padding: 12px 14px; word-break: break-all; white-space: pre-wrap; }
+  .freetext .caret { display: inline-block; width: 2px; height: 1em; background: var(--accent);
+                     vertical-align: -3px; animation: blink 1s step-end infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line);
+        border-radius: 4px; padding: 1px 5px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SIBI Live Test</h1>
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-mode="test">Uji</button>
+    <button role="tab" aria-selected="false" data-mode="free">Bebas</button>
+  </div>
+  <div class="status">
+    <span><span class="dot" id="handDot"></span><span id="handTxt">tidak ada tangan</span></span>
+    <span id="fps">-- FPS</span>
+  </div>
+</header>
+<div class="error" id="error"></div>
+
+<main>
+  <section>
+    <div class="card video">
+      <img id="video" src="/stream" alt="Kamera">
+      <div class="live">
+        <div class="big" id="liveLetter">-</div>
+        <div class="meters">
+          <div class="meter">conf<div class="bar"><i id="confBar"></i></div><span class="num" id="confNum">0%</span></div>
+          <div class="meter">hold<div class="bar hold"><i id="holdBar"></i></div><span class="num" id="holdNum">0%</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <!-- Test: setup -->
+    <div class="card" id="setup">
+      <h2>Uji per huruf</h2>
+      <p class="note">Tiap huruf diuji beberapa kali dalam urutan acak. Satu trial selesai saat
+        stabilizer mengeluarkan huruf, atau saat waktunya habis. Penguji sebaiknya orang yang
+        datanya <b>tidak</b> ikut training.</p>
+      <label>Nama penguji
+        <input id="tester" placeholder="mis. rafi" maxlength="32" autocomplete="off">
+      </label>
+      <label>Skenario
+        <select id="scenario">
+          <option value="normal">Normal</option>
+          <option value="redup">Cahaya redup</option>
+          <option value="latar-ramai">Latar ramai</option>
+          <option value="jauh">Tangan jauh</option>
+        </select>
+      </label>
+      <div class="row">
+        <label>Ulangan per huruf <input id="reps" type="number" min="1" max="20" value="10"></label>
+        <label>Batas waktu (detik) <input id="timeout" type="number" min="2" max="30" value="6"></label>
+      </div>
+      <div class="note" id="setupInfo"></div>
+      <div class="actions"><button class="primary" id="startBtn">Mulai uji</button></div>
+    </div>
+
+    <!-- Test: running -->
+    <div class="card" id="running" hidden>
+      <h2 id="runTitle">Uji</h2>
+      <div class="target">
+        <div class="label">Peragakan huruf</div>
+        <div class="letter" id="target">A</div>
+        <div class="feedback" id="feedback"></div>
+      </div>
+      <div class="progress"><span id="trialNum">1 / 240</span><span id="tally">0 benar</span></div>
+      <div class="bar timer"><i id="timerBar"></i></div>
+      <div class="actions">
+        <button class="ghost" id="pauseBtn">Jeda</button>
+        <button class="ghost" id="skipBtn">Lewati</button>
+        <button class="ghost" id="stopBtn">Selesai &amp; simpan</button>
+      </div>
+    </div>
+
+    <!-- Test: results -->
+    <div class="card" id="results" hidden>
+      <h2 id="resTitle">Hasil</h2>
+      <div class="stats">
+        <div class="stat"><b id="resAcc">-</b><span>akurasi</span></div>
+        <div class="stat"><b id="resMs">-</b><span>rata-rata waktu benar</span></div>
+        <div class="stat"><b id="resTimeout">-</b><span>tidak terbaca</span></div>
+      </div>
+      <h2>Per huruf</h2>
+      <div class="grid" id="resGrid"></div>
+      <h2 style="margin-top:16px">Paling sering tertukar</h2>
+      <ul class="confusions" id="resConf"></ul>
+      <div class="saved" id="saved"></div>
+      <div class="actions">
+        <button class="primary" id="againBtn">Uji lagi</button>
+        <button class="ghost" id="downloadBtn">Unduh CSV</button>
+      </div>
+    </div>
+
+    <!-- Free mode -->
+    <div class="card" id="free" hidden>
+      <h2>Mode bebas</h2>
+      <p class="note">Eja kata seperti di <code>app_realtime.py</code>. Tahan isyarat sampai bar hold
+        penuh, lalu turunkan tangan sebelum huruf berikutnya.</p>
+      <div class="freetext" id="freeText"><span class="caret"></span></div>
+      <div class="actions">
+        <button class="ghost" data-key="space">Spasi <kbd>Space</kbd></button>
+        <button class="ghost" data-key="back">Hapus <kbd>⌫</kbd></button>
+        <button class="ghost" data-key="clear">Kosongkan <kbd>C</kbd></button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const LETTERS = "ABCDEFGHIKLMNOPQRSTUVWXY".split("");
+const FEEDBACK_MS = 900;
+const $ = (id) => document.getElementById(id);
+
+let mode = "test";
+let live = { seq: 0 };
+let test = null;        // { tester, scenario, timeoutMs, queue, i, trials, phase, startSeq, t0 }
+let freeText = "";
+let freeSeq = null;
+let uiError = "";       // page-side message (validation, network); server errors come via /state
+
+// ---------- polling ----------
+async function poll() {
+  try {
+    const r = await fetch("/state", { cache: "no-store" });
+    live = await r.json();
+    renderLive();
+    if (mode === "free") tickFree(); else tickTest();
+  } catch (e) {
+    renderError("Server tidak merespons. Pastikan live_test.py masih berjalan.");
+  } finally {
+    setTimeout(poll, 100);
+  }
+}
+
+function showError(msg) {
+  uiError = msg || "";
+  renderError();
+}
+
+function renderError(transient) {
+  const msg = transient || (live.error ? "Error: " + live.error : "") || uiError;
+  const el = $("error");
+  el.textContent = msg;
+  el.style.display = msg ? "block" : "none";
+}
+
+function renderLive() {
+  renderError();
+  $("liveLetter").textContent = live.letter || "-";
+  $("confBar").style.width = (live.conf * 100) + "%";
+  $("confNum").textContent = Math.round(live.conf * 100) + "%";
+  $("holdBar").style.width = (live.progress * 100) + "%";
+  $("holdNum").textContent = Math.round(live.progress * 100) + "%";
+  $("handDot").classList.toggle("on", !!live.hand);
+  $("handTxt").textContent = live.hand ? "tangan terdeteksi" : "tidak ada tangan";
+  $("fps").textContent = (live.fps || 0).toFixed(1) + " FPS";
+}
+
+// ---------- mode tabs ----------
+document.querySelectorAll(".tabs button").forEach((b) => {
+  b.addEventListener("click", () => setMode(b.dataset.mode));
+});
+
+function setMode(m) {
+  if (m === mode) return;
+  if (test && (test.phase === "wait" || test.phase === "feedback")) pauseTest();
+  mode = m;
+  document.querySelectorAll(".tabs button").forEach((b) =>
+    b.setAttribute("aria-selected", String(b.dataset.mode === m)));
+  freeSeq = null;
+  showTestView();
+  $("free").hidden = m !== "free";
+}
+
+function showTestView() {
+  const inTest = mode === "test";
+  const phase = test ? test.phase : "setup";
+  $("setup").hidden = !inTest || phase !== "setup";
+  $("running").hidden = !inTest || !["wait", "feedback", "paused", "arming"].includes(phase);
+  $("results").hidden = !inTest || phase !== "done";
+}
+
+// ---------- test mode ----------
+function buildQueue(reps) {
+  const q = [];
+  for (let r = 0; r < reps; r++) q.push(...LETTERS);
+  for (let i = q.length - 1; i > 0; i--) {           // Fisher-Yates
+    const j = Math.floor(Math.random() * (i + 1));
+    [q[i], q[j]] = [q[j], q[i]];
+  }
+  for (let i = 1; i < q.length; i++) {               // avoid same letter twice in a row
+    if (q[i] !== q[i - 1]) continue;
+    const j = q.findIndex((x, k) => k > i && x !== q[i - 1]);
+    if (j > 0) [q[i], q[j]] = [q[j], q[i]];
+  }
+  return q;
+}
+
+function updateSetupInfo() {
+  const reps = clampInt($("reps").value, 1, 20, 10);
+  $("setupInfo").textContent = `${reps * LETTERS.length} trial (${LETTERS.length} huruf × ${reps}).`;
+}
+$("reps").addEventListener("input", updateSetupInfo);
+updateSetupInfo();
+
+function clampInt(v, lo, hi, dflt) {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
+}
+
+$("startBtn").addEventListener("click", () => {
+  const tester = $("tester").value.trim();
+  if (!/^[A-Za-z0-9_-]{1,32}$/.test(tester)) {
+    showError("Nama penguji: 1–32 karakter, hanya huruf, angka, _ atau -.");
+    $("tester").focus();
+    return;
+  }
+  showError("");
+  const reps = clampInt($("reps").value, 1, 20, 10);
+  test = {
+    tester,
+    scenario: $("scenario").value,
+    timeoutMs: clampInt($("timeout").value, 2, 30, 6) * 1000,
+    queue: buildQueue(reps),
+    i: 0, trials: [], phase: "arming", startSeq: 0, t0: 0, savedPath: null,
+  };
+  $("runTitle").textContent = `Uji · ${test.tester} · ${test.scenario}`;
+  showTestView();
+  startTrial();
+});
+
+async function startTrial() {
+  if (!test) return;
+  if (test.i >= test.queue.length) return finishTest();
+  test.phase = "arming";
+  renderTrial();
+  try {
+    await fetch("/reset", { method: "POST" });
+    const s = await (await fetch("/state", { cache: "no-store" })).json();
+    test.startSeq = s.seq;
+  } catch (e) {
+    showError("Gagal menghubungi server. Uji dijeda — klik Lanjut setelah server jalan lagi.");
+    test.phase = "paused";
+    renderTrial();
+    return;
+  }
+  if (test.phase !== "arming") return;   // paused or stopped meanwhile
+  test.t0 = performance.now();
+  test.phase = "wait";
+  renderTrial();
+}
+
+function tickTest() {
+  if (!test || test.phase !== "wait") return;
+  const elapsed = performance.now() - test.t0;
+  if (live.seq > test.startSeq) finishTrial(live.last, elapsed);
+  else if (elapsed > test.timeoutMs) finishTrial("", elapsed);
+  else $("timerBar").style.width = (100 - elapsed / test.timeoutMs * 100) + "%";
+}
+
+function finishTrial(got, ms) {
+  const target = test.queue[test.i];
+  test.trials.push({ target, got: got || "", ms: Math.round(ms) });
+  test.phase = "feedback";
+  const ok = got === target;
+  const el = $("target");
+  el.classList.add(ok ? "ok" : "no");
+  $("feedback").textContent = ok ? "Benar" : (got ? `Terbaca ${got}` : "Tidak terbaca");
+  $("feedback").style.color = ok ? "var(--accent)" : "var(--bad)";
+  $("timerBar").style.width = "0%";
+  renderTally();
+  setTimeout(() => {
+    if (!test || test.phase !== "feedback") return;
+    test.i++;
+    startTrial();
+  }, FEEDBACK_MS);
+}
+
+function renderTrial() {
+  if (!test) return;
+  const el = $("target");
+  el.classList.remove("ok", "no");
+  el.textContent = test.queue[Math.min(test.i, test.queue.length - 1)];
+  $("trialNum").textContent = `${Math.min(test.i + 1, test.queue.length)} / ${test.queue.length}`;
+  const paused = test.phase === "paused";
+  $("feedback").textContent = paused ? "Dijeda — klik Lanjut" : (test.phase === "arming" ? "Siap…" : "");
+  $("feedback").style.color = "var(--muted)";
+  $("pauseBtn").textContent = paused ? "Lanjut" : "Jeda";
+  $("skipBtn").disabled = test.phase !== "wait";
+  if (test.phase !== "wait") $("timerBar").style.width = paused ? "0%" : "100%";
+  renderTally();
+  showTestView();
+}
+
+function renderTally() {
+  const correct = test.trials.filter((t) => t.got === t.target).length;
+  $("tally").textContent = `${correct} benar dari ${test.trials.length}`;
+}
+
+function pauseTest() {
+  if (!test) return;
+  if (test.phase === "feedback") test.i++;   // that trial is already recorded
+  test.phase = "paused";   // the current trial restarts on resume
+  renderTrial();
+}
+
+$("pauseBtn").addEventListener("click", () => {
+  if (!test) return;
+  if (test.phase === "paused") startTrial(); else pauseTest();
+});
+$("skipBtn").addEventListener("click", () => {
+  if (test && test.phase === "wait") finishTrial("", performance.now() - test.t0);
+});
+$("stopBtn").addEventListener("click", () => finishTest());
+
+async function finishTest() {
+  if (!test) return;
+  test.phase = "done";
+  renderResults();
+  showTestView();
+  if (!test.trials.length) {
+    $("saved").textContent = "Tidak ada trial yang tercatat, jadi tidak ada yang disimpan.";
+    return;
+  }
+  $("saved").textContent = "Menyimpan…";
+  try {
+    const r = await fetch("/results", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tester: test.tester, scenario: test.scenario, trials: test.trials }),
+    });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || r.status);
+    test.savedPath = body.path;
+    $("saved").textContent = "Tersimpan di " + body.path;
+  } catch (e) {
+    $("saved").textContent = "Gagal menyimpan ke server (" + e.message +
+      "). Klik Unduh CSV supaya hasilnya tidak hilang.";
+  }
+}
+
+function renderResults() {
+  const t = test.trials;
+  const correct = t.filter((x) => x.got === x.target);
+  $("resTitle").textContent = `Hasil · ${test.tester} · ${test.scenario}`;
+  $("resAcc").textContent = t.length ? Math.round(correct.length / t.length * 100) + "%" : "-";
+  $("resMs").textContent = correct.length
+    ? (correct.reduce((s, x) => s + x.ms, 0) / correct.length / 1000).toFixed(1) + " s" : "-";
+  $("resTimeout").textContent = String(t.filter((x) => !x.got).length);
+
+  const grid = $("resGrid");
+  grid.replaceChildren();
+  for (const L of LETTERS) {
+    const rows = t.filter((x) => x.target === L);
+    const ok = rows.filter((x) => x.got === L).length;
+    const cell = document.createElement("div");
+    cell.className = "cell";
+    const b = document.createElement("b"); b.textContent = L;
+    const s = document.createElement("span");
+    s.textContent = rows.length ? `${ok}/${rows.length}` : "–";
+    if (rows.length) {
+      const frac = ok / rows.length;
+      cell.style.borderColor = frac >= 0.8 ? "var(--accent)" : frac >= 0.5 ? "var(--warn)" : "var(--bad)";
+    }
+    cell.append(b, s);
+    grid.append(cell);
+  }
+
+  const pairs = {};
+  for (const x of t) {
+    if (x.got && x.got !== x.target) {
+      const k = `${x.target} → ${x.got}`;
+      pairs[k] = (pairs[k] || 0) + 1;
+    }
+  }
+  const list = $("resConf");
+  list.replaceChildren();
+  const top = Object.entries(pairs).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  if (!top.length) {
+    const li = document.createElement("li"); li.textContent = "Tidak ada huruf yang tertukar.";
+    list.append(li);
+  }
+  for (const [k, n] of top) {
+    const li = document.createElement("li"); li.textContent = `${k}  ×${n}`;
+    list.append(li);
+  }
+}
+
+$("downloadBtn").addEventListener("click", () => {
+  if (!test || !test.trials.length) return;
+  const lines = ["tester,scenario,target,predicted,correct,ms"].concat(
+    test.trials.map((x) => [test.tester, test.scenario, x.target, x.got,
+                            x.got === x.target ? 1 : 0, x.ms].join(",")));
+  const blob = new Blob([lines.join("\n") + "\n"], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${test.tester}_${test.scenario}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+$("againBtn").addEventListener("click", () => {
+  test = null;
+  showError("");
+  showTestView();
+});
+
+// ---------- free mode ----------
+function tickFree() {
+  if (freeSeq === null) { freeSeq = live.seq; return; }
+  if (live.seq > freeSeq) {
+    freeSeq = live.seq;
+    freeText += live.last;
+    renderFree();
+  }
+}
+
+function renderFree() {
+  const box = $("freeText");
+  box.textContent = freeText;
+  const caret = document.createElement("span");
+  caret.className = "caret";
+  box.append(caret);
+}
+
+function freeKey(k) {
+  showError("");
+  if (k === "space") freeText += " ";
+  else if (k === "back") freeText = freeText.slice(0, -1);
+  else if (k === "clear") freeText = "";
+  renderFree();
+}
+document.querySelectorAll("[data-key]").forEach((b) =>
+  b.addEventListener("click", () => freeKey(b.dataset.key)));
+
+document.addEventListener("keydown", (e) => {
+  if (mode !== "free" || (e.target instanceof Element && e.target.matches("input, select"))) return;
+  if (e.key === " ") { e.preventDefault(); freeKey("space"); }
+  else if (e.key === "Backspace") { e.preventDefault(); freeKey("back"); }
+  else if (e.key === "c" || e.key === "C") freeKey("clear");
+});
+
+$("video").addEventListener("error", () =>
+  showError("Video tidak tersedia. Cek kamera atau jalankan ulang live_test.py."));
+
+poll();
+</script>
+</body>
+</html>
