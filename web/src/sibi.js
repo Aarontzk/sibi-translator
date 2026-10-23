@@ -31,14 +31,21 @@ export class Stabilizer {
   }
 }
 
+// All training data (webcam + Trunojoyo videos) was 640x480.
+export const TRAIN_ASPECT = 4 / 3;
+
 /**
  * Wrist at origin, scaled by farthest point. x is mirrored because the
  * Python pipeline flips every frame before MediaPipe sees it.
+ * MediaPipe x/z are fractions of the frame width and y of its height, so a
+ * 16:9 or portrait camera bends the hand shape; rescale x/z to a 4:3 frame.
  * @param {{x:number,y:number,z:number}[]} lms 21 MediaPipe landmarks
+ * @param {number} aspect camera width / height
  * @returns {number[]} 63 features
  */
-export function normalizeLandmarks(lms) {
-  const pts = lms.map((p) => [1 - p.x, p.y, p.z]);
+export function normalizeLandmarks(lms, aspect = TRAIN_ASPECT) {
+  const k = aspect / TRAIN_ASPECT;
+  const pts = lms.map((p) => [(1 - p.x) * k, p.y, p.z * k]);
   const [wx, wy, wz] = pts[0];
   const rel = pts.map(([x, y, z]) => [x - wx, y - wy, z - wz]);
   const maxDist = Math.max(...rel.map(([x, y, z]) => Math.hypot(x, y, z)));

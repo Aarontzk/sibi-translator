@@ -1,23 +1,25 @@
-"""Train Random Forest and MLP on landmarks.csv, compare, save the best.
+"""Train Random Forest and MLP on SIBI landmarks, compare, save the best.
 Owner: Azka.
 
-    python train_model.py                   # team data only
-    python train_model.py --with-external   # + data/raw/external_train.csv (from convert_videos.py)
-    python train_model.py --external-only   # external data only (no team recordings yet)
+    python train_model.py
 
---with-external adds external rows to the TRAINING portion only; the hold-out
-stays pure team data, so evaluate.py's team split is unchanged and comparable.
---external-only trains on external_train.csv and tests on external_test.csv,
-keeping convert_videos.py's per-video split; GridSearch folds are grouped by
-video too, so frames of one video never sit on both sides of a fold.
+Data (both optional, at least one needed):
+- data/raw/landmarks.csv     team recordings (collect_dataset.py, SIBI guide image)
+- data/raw/sibi_mendeley.csv Mendeley SIBI photos (convert_images.py)
 
-Loads data/raw/landmarks.csv, normalizes every row through
-features.normalize_landmarks, runs a small GridSearch for RF and MLP, compares
-accuracy and inference time on a stratified hold-out, prints an RF-vs-MLP table,
-and saves the best model to models/sibi_model.joblib as a joblib dict
-{"model", "labels"} (predict_proba is used downstream for confidence).
+Every row is normalized through features.normalize_landmarks. A small GridSearch
+picks RF and MLP settings, both are compared on a hold-out (accuracy and
+inference time), and the best is saved to models/sibi_model.joblib as a joblib
+dict {"model", "labels"} (predict_proba is used downstream for confidence).
+
+Hold-out (load_split, shared by evaluate.py and export_web.py):
+- Mendeley rows: the dataset authors' test/ split.
+- Team rows: with 3+ recorders whole people are held out, so the score says how
+  well the model reads a hand it has never seen; otherwise a per-frame split.
+Each person records ~100 near-identical frames per letter, so (person, letter)
+groups are capped at MAX_PER_PERSON_LETTER rows to keep one person or one letter
+from outweighing the rest.
 """
-import argparse
 import os
 import time
 
@@ -26,38 +28,79 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
-from sklearn.model_selection import GridSearchCV, GroupKFold, train_test_split
+from sklearn.model_selection import GridSearchCV, GroupShuffleSplit, train_test_split
 from sklearn.neural_network import MLPClassifier
 
-from sibi.features import CSV_COORD_COLS, normalize_landmarks
+from sibi.features import CSV_COORD_COLS, LETTERS, normalize_landmarks
 
 DATA_PATH = os.path.join("data", "raw", "landmarks.csv")
-EXT_TRAIN_PATH = os.path.join("data", "raw", "external_train.csv")
-EXT_TEST_PATH = os.path.join("data", "raw", "external_test.csv")
+MENDELEY_PATH = os.path.join("data", "raw", "sibi_mendeley.csv")
 MODEL_PATH = os.path.join("models", "sibi_model.joblib")
 SEED = 42
-# Trunojoyo signs Y with two hands (not SIBI one-hand Y); one-hand landmarks of it are noise
-EXT_EXCLUDED_LABELS = frozenset({"Y"})
+MIN_PEOPLE_FOR_GROUP_SPLIT = 3
+MAX_PER_PERSON_LETTER = 150
 
 
-def load_xyg(path):
-    """Return (X normalized 63-dim, y labels, person/video groups)."""
-    if not os.path.exists(path):
-        raise SystemExit(f"{path} not found -- run collect_dataset.py / convert_videos.py first.")
-    df = pd.read_csv(path)
-    if path in (EXT_TRAIN_PATH, EXT_TEST_PATH):
-        df = df[~df["label"].isin(EXT_EXCLUDED_LABELS)]
+def read_rows():
+    """All available CSVs as one DataFrame, (person, letter) groups capped."""
+    frames = [pd.read_csv(p) for p in (DATA_PATH, MENDELEY_PATH) if os.path.exists(p)]
+    if not frames:
+        raise SystemExit(f"No data: record with collect_dataset.py ({DATA_PATH}) "
+                         f"or run convert_images.py ({MENDELEY_PATH}).")
+    df = pd.concat(frames, ignore_index=True)
     if df.empty:
-        raise SystemExit(f"{path} has no rows -- check how it was produced.")
+        raise SystemExit("Data files have no rows.")
+    df = df.sample(frac=1, random_state=SEED)  # shuffle, then keep the first N per group
+    df = df[df.groupby(["person", "label"]).cumcount() < MAX_PER_PERSON_LETTER]
+    return df.sort_index().reset_index(drop=True)
+
+
+def features(df):
     raw = df[CSV_COORD_COLS].to_numpy(dtype=np.float32)
-    X = np.array([normalize_landmarks(r) for r in raw], dtype=np.float32)
-    return X, df["label"].to_numpy(), df["person"].to_numpy()
+    return np.array([normalize_landmarks(r) for r in raw], dtype=np.float32)
 
 
-def load_xy(path):
-    """Return (X normalized 63-dim, y labels). Raw coords live in the CSV."""
-    X, y, _ = load_xyg(path)
-    return X, y
+def check_letters(y):
+    """Stop if there is nothing to classify; warn about letters with no data."""
+    present = set(y)
+    if len(present) < 2:
+        raise SystemExit(f"Only {sorted(present)} available -- need at least 2 letters to train.")
+    missing = [L for L in LETTERS if L not in present]
+    if missing:
+        print(f"Warning: no samples for {' '.join(missing)} -- the model cannot output these.")
+
+
+def team_test_mask(df):
+    """Hold-out mask for team rows (see module docstring)."""
+    mask = np.zeros(len(df), dtype=bool)
+    if df.empty:
+        return mask
+    groups = df["person"].to_numpy()
+    if len(set(groups)) >= MIN_PEOPLE_FOR_GROUP_SPLIT:
+        gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=SEED)
+        _, te = next(gss.split(df, groups=groups))
+    else:
+        print(f"Note: fewer than {MIN_PEOPLE_FOR_GROUP_SPLIT} team recorders -- per-frame split "
+              f"for team data, its hold-out accuracy will look higher than it really is.")
+        y = df["label"].to_numpy()
+        strat = y if min(pd.Series(y).value_counts()) >= 2 else None
+        _, te = train_test_split(np.arange(len(df)), test_size=0.2, stratify=strat, random_state=SEED)
+    mask[te] = True
+    return mask
+
+
+def load_split():
+    """Return (Xtr, Xte, ytr, yte) over all data, split as in the module docstring."""
+    df = read_rows()
+    is_mendeley = df["person"].str.startswith("mendeley/").to_numpy()
+    test = np.zeros(len(df), dtype=bool)
+    test[is_mendeley] = (df.loc[is_mendeley, "person"] == "mendeley/test").to_numpy()
+    test[~is_mendeley] = team_test_mask(df[~is_mendeley].reset_index(drop=True))
+    X, y = features(df), df["label"].to_numpy()
+    check_letters(y[~test])
+    print(f"Rows: {int((~is_mendeley).sum())} team ({df.loc[~is_mendeley, 'person'].nunique()} people), "
+          f"{int(is_mendeley.sum())} Mendeley -> {int((~test).sum())} train / {int(test.sum())} hold-out")
+    return X[~test], X[test], y[~test], y[test]
 
 
 def mean_inference_ms(model, X):
@@ -68,36 +111,7 @@ def mean_inference_ms(model, X):
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    mode = ap.add_mutually_exclusive_group()
-    mode.add_argument("--with-external", action="store_true",
-                      help=f"also train on {EXT_TRAIN_PATH}")
-    mode.add_argument("--external-only", action="store_true",
-                      help=f"train on {EXT_TRAIN_PATH}, test on {EXT_TEST_PATH}")
-    args = ap.parse_args()
-
-    cv, groups = 3, None
-    if args.external_only:
-        Xtr, ytr, groups = load_xyg(EXT_TRAIN_PATH)
-        Xte, yte = load_xy(EXT_TEST_PATH)
-        cv = GroupKFold(n_splits=3)  # folds split by video, not by frame
-        print(f"External only: {len(ytr)} train / {len(yte)} test rows "
-              f"({len(set(groups))} train videos)")
-    else:
-        X, y = load_xy(DATA_PATH)
-        Xtr, Xte, ytr, yte = train_test_split(
-            X, y, test_size=0.2, stratify=y, random_state=SEED
-        )
-        print(f"Team data: {len(ytr)} train / {len(yte)} hold-out rows")
-        if args.with_external:
-            Xext, yext = load_xy(EXT_TRAIN_PATH)
-            missing = sorted(set(yext) - set(y))
-            if missing:  # fine while the team is still recording
-                print(f"Note: team hold-out has no samples for {' '.join(missing)}; "
-                      f"check those with evaluate.py --external")
-            Xtr = np.concatenate([Xtr, Xext])
-            ytr = np.concatenate([ytr, yext])
-            print(f"+ external: {len(yext)} rows -> {len(ytr)} train rows")
+    Xtr, Xte, ytr, yte = load_split()
 
     candidates = {
         "RandomForest": (
@@ -112,8 +126,8 @@ def main():
 
     results = {}
     for name, (est, grid) in candidates.items():
-        gs = GridSearchCV(est, grid, cv=cv, n_jobs=-1)
-        gs.fit(Xtr, ytr, groups=groups)
+        gs = GridSearchCV(est, grid, cv=3, n_jobs=-1)
+        gs.fit(Xtr, ytr)
         best = gs.best_estimator_
         acc = accuracy_score(yte, best.predict(Xte))
         results[name] = {

@@ -1,22 +1,18 @@
 """Model evaluation. Owner: Rafi.
 
-    python evaluate.py              # team hold-out (same split as train_model.py)
-    python evaluate.py --external   # data/raw/external_test.csv (videos never trained on)
+    python evaluate.py   # hold-out (same split as train_model.py)
 
 Prints a per-letter classification report, saves a confusion-matrix heatmap to
-reports/ (confusion_matrix.png or confusion_matrix_external.png), and lists the 5
-most-confused letter pairs.
+reports/confusion_matrix.png, and lists the 5 most-confused letter pairs.
 """
-import argparse
 import os
 
 import joblib
 import numpy as np
 from sklearn.metrics import classification_report, confusion_matrix
-from sklearn.model_selection import train_test_split
 
 from sibi.features import normalize_landmarks  # noqa: F401 (keeps single-norm contract explicit)
-from train_model import DATA_PATH, EXT_TEST_PATH, MODEL_PATH, SEED, load_xy
+from train_model import MODEL_PATH, load_split
 
 DOCS_DIR = "reports"
 
@@ -50,21 +46,9 @@ def save_heatmap(cm, labels, path):
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--external", action="store_true",
-                    help=f"test on {EXT_TEST_PATH} instead of the team hold-out")
-    args = ap.parse_args()
-
-    if args.external:
-        Xte, yte = load_xy(EXT_TEST_PATH)  # already split per video, use whole file
-        name = "confusion_matrix_external.png"
-    else:
-        X, y = load_xy(DATA_PATH)
-        _, Xte, _, yte = train_test_split(
-            X, y, test_size=0.2, stratify=y, random_state=SEED
-        )
-        name = "confusion_matrix.png"
-    print(f"Test set: {'external' if args.external else 'team hold-out'}, {len(yte)} rows")
+    _, Xte, _, yte = load_split()
+    name = "confusion_matrix.png"
+    print(f"Test set: hold-out, {len(yte)} rows")
 
     bundle = joblib.load(MODEL_PATH)
     model, labels = bundle["model"], bundle["labels"]

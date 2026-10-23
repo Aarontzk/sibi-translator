@@ -10,8 +10,8 @@ klasifikasi (Random Forest / MLP) → stabilisasi → teks di layar.
 
 ```
 sibi-translator/
-├── collect_dataset.py     # rekam landmark per huruf dari webcam -> data/raw/landmarks.csv
-├── convert_videos.py      # dataset video luar (Trunojoyo) -> data/raw/external_*.csv
+├── collect_dataset.py     # rekam per huruf, dipandu gambar SIBI -> data/raw/landmarks.csv
+├── convert_images.py      # foto dataset SIBI Mendeley -> data/raw/sibi_mendeley.csv
 ├── train_model.py         # latih RF + MLP, simpan terbaik -> models/sibi_model.joblib
 ├── app_realtime.py        # aplikasi kamera real-time
 ├── evaluate.py            # classification report + confusion matrix -> reports/
@@ -20,9 +20,11 @@ sibi-translator/
 ├── export_web.py          # ekspor MLP ke web/public/model.json
 ├── sibi/
 │   ├── features.py        # normalize_landmarks (satu-satunya tempat normalisasi)
+│   ├── guide.py           # potongan gambar panduan SIBI per huruf
 │   ├── stabilizer.py      # satu huruf per isyarat (N-frame + cooldown)
 │   └── ui.py              # tampilan (landmark, bar, panel teks)
 ├── data/raw/              # dataset CSV (koordinat mentah)
+├── data/images/           # foto sumber Mendeley (tidak di-commit)
 ├── models/                # model terlatih (.joblib)
 ├── reports/               # confusion matrix, hasil uji langsung
 ├── web/                   # versi web (Vite + React + Elastic UI), di-deploy ke Vercel
@@ -33,7 +35,7 @@ sibi-translator/
 
 | Deliverable | PIC | File terkait |
 |---|---|---|
-| Dataset | Farel | `collect_dataset.py`, `convert_videos.py`, `data/raw/` |
+| Dataset | Farel | `collect_dataset.py`, `convert_images.py`, `sibi/guide.py`, `data/raw/` |
 | Model klasifikasi | Azka | `train_model.py`, `sibi/features.py`, `models/` |
 | Aplikasi real-time | Gregorius | `app_realtime.py`, `sibi/stabilizer.py` |
 | Tampilan | Sahril | `sibi/ui.py` |
@@ -57,16 +59,20 @@ hasil training bisa dibuka di semua laptop.
 
 ## Cara menjalankan
 
-Urutan: **rekam data → latih → jalankan**. Aplikasi butuh `models/sibi_model.joblib`,
-yang butuh `data/raw/landmarks.csv`.
+Urutan: **data → latih → jalankan**. Aplikasi butuh `models/sibi_model.joblib`,
+yang dilatih dari `data/raw/sibi_mendeley.csv` (sudah ada di repo) ditambah
+rekaman tim di `data/raw/landmarks.csv`.
 
 ```bash
 # 1. Rekam dataset (tiap anggota, sebutkan nama + tangan)
 python collect_dataset.py --person azka --hand right
-#    arahkan tangan ke kamera, tekan huruf (A–Y, tanpa J) untuk menyimpan sampel.
+#    ikuti gambar SIBI di panel kanan, Space = mulai/jeda rekam. Lihat "Cara merekam".
 
 # 2. Latih model (bandingkan RF vs MLP, simpan terbaik ke models/sibi_model.joblib)
 python train_model.py
+
+# 2b. Perbarui model versi web (web/public/model.json), lalu deploy ulang folder web/
+python export_web.py
 
 # 3. Jalankan penerjemah real-time
 python app_realtime.py
@@ -106,38 +112,57 @@ normalisasi hanya di `sibi.features.normalize_landmarks`). Kolom:
 label, person, hand, x0, y0, z0, …, x20, y20, z20
 ```
 
-Direkam sendiri oleh anggota tim dengan izin. Protokol: variasi cahaya
-(terang/redup), jarak (dekat/jauh), sedikit rotasi; target sampel per huruf per
-orang disepakati tim. Satu tangan (tangan kiri menghasilkan landmark tercermin —
-putuskan sebelum merekam).
+Ada dua sumber, keduanya SIBI satu tangan (tangan kanan):
 
-### Dataset eksternal (opsional, tambahan)
+| File | Isi | Asal |
+|---|---|---|
+| `data/raw/sibi_mendeley.csv` | ±1.430 baris, ±60 per huruf | foto dataset SIBI Mendeley, lewat `convert_images.py` |
+| `data/raw/landmarks.csv` | rekaman tim | `collect_dataset.py` |
 
-Dataset video luar dikonversi dengan `convert_videos.py` ke format kolom yang
-sama, disimpan **terpisah** dari `landmarks.csv`:
+`train_model.py` memakai keduanya. Hold-out-nya adalah folder `test/` milik
+penyusun dataset Mendeley, ditambah 20% data tim. Tiap pasangan (orang, huruf)
+dibatasi 150 baris supaya satu orang atau satu huruf tidak mendominasi.
+
+### Dataset SIBI Mendeley
+
+Andriyanto, T. *Labeled Official Indonesian Sign Language (SIBI) Alphabet*.
+Mendeley Data, v1, 2024. doi:10.17632/yhsgmynccf.1 (CC BY 4.0, **wajib dicantumkan
+di References**). Yang dipakai hanya folder `sibi_alphabet_mono_bg_no_augmentation`.
+Folder lain berisi foto yang sama dengan latar diganti atau di-blur, jadi
+landmark-nya hampir identik dan tidak menambah informasi.
+
+Untuk membuat ulang CSV-nya, unduh folder itu ke `data/images/sibi_mendeley/`
+(isinya `train/`, `val/`, `test/`), lalu:
 
 ```bash
-python convert_videos.py path/ke/video --source trunojoyo --start 0.5 --every 2
-# -> data/raw/external_train.csv, data/raw/external_test.csv
-
-python train_model.py --external-only   # latih HANYA dari data eksternal (sebelum tim merekam)
-python train_model.py --with-external   # data tim + external_train
-python evaluate.py --external     # uji di external_test -> reports/confusion_matrix_external.png
+python convert_images.py data/images/sibi_mendeley
 ```
 
-`--start 0.5` membuang paruh awal tiap video. Di dataset Trunojoyo, bagian awal
-video berisi tangan yang masih naik dan bentuknya belum jadi. Dataset Trunojoyo
-sudah dicek: **SIBI**, satu tangan, 640×480, 25 fps. Strukturnya `A/A_001.MOV`, …
+Foto tangan kiri dicerminkan jadi tangan kanan. Foto yang tangannya tidak
+terdeteksi MediaPipe dilewati (7 dari 1.440).
 
-Data eksternal hanya ditambahkan ke bagian **latih**. Hold-out tim tetap murni
-data tim, jadi `python evaluate.py` biasa tetap bisa dibandingkan antar-run.
+Dataset video Trunojoyo yang dulu dipakai sudah dibuang karena bentuk tangannya
+BISINDO, bukan SIBI (misalnya B hanya telunjuk, Y hanya telunjuk).
 
-- Frame di-flip seperti `app_realtime.py`, supaya landmark tidak tercermin.
-- Split 80:20 **per video**, bukan per frame, supaya tidak bocor. Kolom `person` berisi `<source>/<nama video>`.
-- Huruf J dan Z dilewati. Label diambil dari nama folder (`A/`) atau huruf pertama nama file.
-- Wajib dicantumkan di References (lisensi CC BY 4.0):
-  - Siradjuddin, I. *Indonesian Sign Language Dataset: Alphabet Video*. Mendeley Data, v1, 2024. doi:10.17632/p7j5jrsbbb.1
-  - Darmawan, I D. M. B. A. et al. *Indonesian Sign Language System (SIBI) Dataset*. Mendeley Data, v3, 2024. doi:10.17632/44pbrbsnkh.3 (versi lengkap butuh Data Use Agreement)
+### Cara merekam
+
+Acuannya satu: gambar panduan `web/public/abjad-sibi.png`, sama dengan yang
+tampil di web. `collect_dataset.py` menampilkan potongan gambar huruf yang sedang
+direkam di samping kamera.
+
+1. `python collect_dataset.py --person <nama> --hand right` (pakai nama yang sama tiap sesi).
+2. Tiru bentuk tangan di gambar, lalu tekan **Space**. Selama merekam, tahan bentuknya
+   sambil pelan-pelan menggeser tangan: maju-mundur, sedikit miring, kiri-kanan layar.
+3. Di 100 sampel (`--target`), rekaman berhenti sendiri dan pindah ke huruf berikutnya
+   yang belum selesai. **N** lanjut, **B** kembali, **Q** keluar.
+4. Bisa dicicil: menjalankan ulang dengan `--person` yang sama melanjutkan huruf yang belum selesai.
+5. Kalau salah rekam, hapus baris huruf + nama itu dari `data/raw/landmarks.csv`, lalu rekam ulang.
+
+Rekaman tim menambah variasi tangan di luar dataset Mendeley. Target: semua
+anggota merekam ke-24 huruf dengan tangan kanan. Rekam di
+beberapa kondisi (terang/redup, latar berbeda) kalau sempat. Dengan 3 perekam atau
+lebih, `train_model.py` menguji pada orang yang tidak ikut dilatih, jadi akurasinya
+jujur untuk tangan baru.
 
 ## Catatan
 

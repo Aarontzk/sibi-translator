@@ -14,6 +14,9 @@ __pycache__/
 *.mov
 *.mkv
 
+# source photos (re-download from Mendeley; only the landmark CSV is committed)
+data/images/
+
 # model and big datasets: do not commit if >50MB
 models/*.joblib
 !data/raw/.gitkeep

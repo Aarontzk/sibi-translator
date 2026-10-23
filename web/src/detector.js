@@ -65,7 +65,8 @@ export async function startDetector(canvas, onFrame, onStage) {
     if (video.readyState >= 2 && now - lastInfer >= INFER_INTERVAL_MS) {
       lastInfer = now;
       landmarks = landmarker.detectForVideo(video, now).landmarks?.[0] ?? null;
-      const { letter, conf } = landmarks ? mlpPredict(model, normalizeLandmarks(landmarks)) : { letter: null, conf: 0 };
+      const aspect = video.videoWidth / video.videoHeight;
+      const { letter, conf } = landmarks ? mlpPredict(model, normalizeLandmarks(landmarks, aspect)) : { letter: null, conf: 0 };
       const emitted = stab.update(letter, conf);
       onFrame({ letter, conf, progress: stab.progress, hasHand: !!landmarks, emitted });
     }
