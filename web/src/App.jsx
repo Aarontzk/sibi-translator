@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   EuiBadge, EuiButton, EuiButtonEmpty, EuiCallOut, EuiFlexGrid, EuiFlexGroup, EuiFlexItem,
-  EuiHealth, EuiPageTemplate, EuiPanel, EuiProgress, EuiSpacer, EuiText, EuiTitle,
+  EuiHealth, EuiImage, EuiPageTemplate, EuiPanel, EuiProgress, EuiSpacer, EuiText, EuiTitle,
   useEuiTheme,
 } from "@elastic/eui";
 import { startDetector } from "./detector.js";
@@ -124,6 +124,17 @@ function ReadingPanel({ reading, text, setText }) {
   );
 }
 
+function AlphabetGuide() {
+  return (
+    <EuiPanel hasBorder paddingSize="l">
+      <EuiTitle size="xxs"><h3>Panduan abjad SIBI</h3></EuiTitle>
+      <EuiSpacer size="s" />
+      <EuiImage src="/abjad-sibi.png" alt="Bentuk tangan abjad SIBI dari A sampai Z"
+        allowFullScreen size="fullWidth" style={{ maxWidth: 412, margin: "0 auto", display: "block" }} />
+    </EuiPanel>
+  );
+}
+
 export default function App() {
   const [reading, setReading] = useState(IDLE_READING);
   const [text, setText] = useState("");
@@ -135,7 +146,11 @@ export default function App() {
       <EuiPageTemplate.Section>
         <EuiFlexGroup gutterSize="l" alignItems="flexStart">
           <EuiFlexItem grow={3}><CameraPanel onReading={setReading} onEmit={onEmit} /></EuiFlexItem>
-          <EuiFlexItem grow={2}><ReadingPanel reading={reading} text={text} setText={setText} /></EuiFlexItem>
+          <EuiFlexItem grow={2}>
+            <ReadingPanel reading={reading} text={text} setText={setText} />
+            <EuiSpacer size="l" />
+            <AlphabetGuide />
+          </EuiFlexItem>
         </EuiFlexGroup>
       </EuiPageTemplate.Section>
     </EuiPageTemplate>
